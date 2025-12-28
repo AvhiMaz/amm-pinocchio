@@ -16,7 +16,8 @@ pub struct Pool {
 }
 
 impl Pool {
-    
+    pub const LEN: usize = 32 + 32 + 32 + 32 + 32 + 32 + 8 + 8 + 2 + 1 + 1;
+
     pub fn set_inner_full(
         &mut self,
         authority: Pubkey,
@@ -43,5 +44,4 @@ impl Pool {
         self.bump = bump;
         self.lp_mint_bump = lp_mint_bump;
     }
-
 }
