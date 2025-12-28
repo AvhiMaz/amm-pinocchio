@@ -2,8 +2,10 @@
 
 use pinocchio::{
     ProgramResult, account_info::AccountInfo, default_panic_handler, no_allocator,
-    program_entrypoint, pubkey::Pubkey,
+    program_entrypoint, program_error::ProgramError, pubkey::Pubkey,
 };
+
+use crate::instructions::initializer::process_initialize;
 
 program_entrypoint!(process_instruction);
 
@@ -12,9 +14,12 @@ no_allocator!();
 default_panic_handler!();
 
 fn process_instruction(
-    _program_id: &Pubkey,
-    _accounts: &[AccountInfo],
-    _instruction_data: &[u8],
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
 ) -> ProgramResult {
-    Ok(())
+    match instruction_data.split_first() {
+        Some((0, rest)) => process_initialize(program_id, accounts, rest),
+        _ => Err(ProgramError::InvalidInstructionData),
+    }
 }
