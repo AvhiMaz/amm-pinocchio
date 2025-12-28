@@ -3,6 +3,7 @@ use pinocchio::{
 };
 
 use crate::constants::SYSTEM_PROGRAM_ID;
+use pinocchio_token::{ID, state::TokenAccount};
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -28,7 +29,7 @@ pub fn process_initialize(
         vault_a,
         vault_b,
         system_program,
-        _token_program,
+        token_program,
         _remaining @ ..,
     ] = accounts
     else {
@@ -47,12 +48,34 @@ pub fn process_initialize(
         return Err(ProgramError::InvalidArgument);
     }
 
-    if !vault_a.data_is_empty() || !vault_b.data_is_empty() || !lp_mint.data_is_empty() {
+    if !lp_mint.data_is_empty() {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
 
     if system_program.key() != &SYSTEM_PROGRAM_ID {
         return Err(ProgramError::IncorrectProgramId);
+    }
+
+    if token_program.key() != &ID {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+
+    let vault_a_account = TokenAccount::from_account_info(vault_a)?;
+
+    let vault_b_account = TokenAccount::from_account_info(vault_b)?;
+
+    if vault_a_account.mint() != token_a.key() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if vault_a_account.amount() != 0 {
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+
+    if vault_b_account.mint() != token_b.key() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if vault_b_account.amount() != 0 {
+        return Err(ProgramError::AccountAlreadyInitialized);
     }
 
     Ok(())
