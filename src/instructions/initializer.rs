@@ -1,4 +1,8 @@
-use pinocchio::{ProgramResult, account_info::AccountInfo, pubkey::Pubkey};
+use pinocchio::{
+    ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
+};
+
+use crate::constants::SYSTEM_PROGRAM_ID;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -24,12 +28,32 @@ pub fn process_initialize(
         vault_a,
         vault_b,
         system_program,
-        token_program,
-        remaining @ ..,
+        _token_program,
+        _remaining @ ..,
     ] = accounts
     else {
-        return Err(pinocchio::program_error::ProgramError::NotEnoughAccountKeys);
+        return Err(ProgramError::NotEnoughAccountKeys);
     };
+
+    if !authority.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    if !pool.data_is_empty() {
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+
+    if token_a.key() == token_b.key() {
+        return Err(ProgramError::InvalidArgument);
+    }
+
+    if !vault_a.data_is_empty() || !vault_b.data_is_empty() || !lp_mint.data_is_empty() {
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+
+    if system_program.key() != &SYSTEM_PROGRAM_ID {
+        return Err(ProgramError::IncorrectProgramId);
+    }
 
     Ok(())
 }
