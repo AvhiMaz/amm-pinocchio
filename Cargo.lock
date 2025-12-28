@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "pinocchio",
+ "pinocchio-system",
  "pinocchio-token",
 ]
 
@@ -61,6 +62,16 @@ dependencies = [
  "five8_const",
  "pinocchio",
  "sha2-const-stable",
+]
+
+[[package]]
+name = "pinocchio-system"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4be2a6dad40b5e75d1486f021619c4bd504c34c1362c9b94ed7fa525b1cc63cc"
+dependencies = [
+ "pinocchio",
+ "pinocchio-pubkey",
 ]
 
 [[package]]
