@@ -1,4 +1,4 @@
-.PHONY: build check clippy fmt test all
+.PHONY: build check clippy fmt test bench all
 
 build:
 	cargo build
@@ -15,4 +15,7 @@ fmt:
 test:
 	cargo test -- --nocapture
 
-all: fmt check clippy build test
+bench:
+	cargo build-sbf && cargo bench --bench initializer_ix_bench
+
+all: fmt check clippy build test bench

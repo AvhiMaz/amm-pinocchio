@@ -23,6 +23,8 @@ use pinocchio_token::{
 #[derive(Clone, Debug, Copy, PartialEq, Pod, Zeroable)]
 pub struct InitializeInstructionData {
     pub fee_rate: u16,
+    pub pool_bump: u8,
+    pub lp_mint_bump: u8,
 }
 
 impl InitializeInstructionData {
@@ -92,10 +94,13 @@ pub fn process_initialize(
         return Err(ProgramError::AccountAlreadyInitialized);
     }
 
-    let ix_data = bytemuck::try_from_bytes::<InitializeInstructionData>(instruction)
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    if instruction.len() != InitializeInstructionData::LEN {
+        return Err(ProgramError::InvalidInstructionData);
+    }
 
-    let fee_rate = ix_data.fee_rate;
+    let fee_rate = u16::from_le_bytes([instruction[0], instruction[1]]);
+    let pool_bump = instruction[2];
+    let lp_mint_bump = instruction[3];
 
     //  - 1 basis point = 0.01%
     //  - 10000 basis points = 100%
@@ -103,23 +108,28 @@ pub fn process_initialize(
         return Err(ProgramError::InvalidArgument);
     }
 
-    let (pool_pda, pool_bump) = pinocchio::pubkey::find_program_address(
+    let pool_pda = pinocchio::pubkey::create_program_address(
         &[
             POOL_SEED.as_bytes(),
             token_a.key().as_ref(),
             token_b.key().as_ref(),
+            &[pool_bump],
         ],
         program_id,
-    );
+    )?;
 
     if pool.key() != &pool_pda {
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let (lp_mint_pda, lp_mint_pda_bump) = pinocchio::pubkey::find_program_address(
-        &[LP_MINT_SEED.as_bytes(), pool.key().as_ref()],
+    let lp_mint_pda = pinocchio::pubkey::create_program_address(
+        &[
+            LP_MINT_SEED.as_bytes(),
+            pool.key().as_ref(),
+            &[lp_mint_bump],
+        ],
         program_id,
-    );
+    )?;
 
     if lp_mint.key() != &lp_mint_pda {
         return Err(ProgramError::InvalidAccountData);
@@ -160,11 +170,11 @@ pub fn process_initialize(
         reserve_b: 0,
         fee_rate,
         bump: pool_bump,
-        lp_mint_bump: lp_mint_pda_bump,
+        lp_mint_bump,
         _padding: [0; 4],
     });
 
-    let binding = [lp_mint_pda_bump];
+    let binding = [lp_mint_bump];
     let lp_mint_seed = [
         Seed::from(LP_MINT_SEED.as_bytes()),
         Seed::from(pool.key().as_ref()),
