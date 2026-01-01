@@ -21,15 +21,15 @@ pub fn process_add_liquidity(
     _instruction: &[u8],
 ) -> ProgramResult {
     let [
-        user,
-        pool,
-        lp_mint,
-        vault_a,
-        vault_b,
-        user_token_a,
-        user_token_b,
-        user_lp_token,
-        token_program,
+        _user,
+        _pool,
+        _lp_mint,
+        _vault_a,
+        _vault_b,
+        _user_token_a,
+        _user_token_b,
+        _user_lp_token,
+        _token_program,
         _remaining @ ..,
     ] = accounts
     else {
