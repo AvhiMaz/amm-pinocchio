@@ -1,4 +1,4 @@
-use bytemuck::{Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, checked::pod_read_unaligned};
 use pinocchio::{
     ProgramResult,
     account_info::AccountInfo,
@@ -98,8 +98,7 @@ pub fn process_initialize(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let data = bytemuck::try_from_bytes::<InitializeInstructionData>(instruction)
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let data = pod_read_unaligned::<InitializeInstructionData>(instruction);
 
     //  - 1 basis point = 0.01%
     //  - 10000 basis points = 100%

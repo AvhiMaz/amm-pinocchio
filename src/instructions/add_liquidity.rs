@@ -1,4 +1,4 @@
-use bytemuck::{Pod, Zeroable, checked::try_from_bytes};
+use bytemuck::{Pod, Zeroable, checked::pod_read_unaligned};
 use pinocchio::{
     ProgramResult,
     account_info::AccountInfo,
@@ -55,8 +55,7 @@ pub fn process_add_liquidity(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let data = try_from_bytes::<AddLiquidityInstructionData>(instruction)
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let data = pod_read_unaligned::<AddLiquidityInstructionData>(instruction);
 
     if data.amount_a == 0 || data.amount_b == 0 {
         return Err(ProgramError::InvalidAccountData);
