@@ -1,3 +1,5 @@
+use core::cmp::min;
+
 use bytemuck::{Pod, Zeroable};
 use pinocchio::{
     ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
@@ -7,7 +9,7 @@ use pinocchio_token::{
     state::{Mint, TokenAccount},
 };
 
-use crate::states::Pool;
+use crate::{helper::integer_sqrt, states::Pool};
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq, Pod, Zeroable)]
@@ -109,6 +111,16 @@ pub fn process_add_liquidity(
     if user_lp_token_acc.mint() != &pool_state.lp_mint {
         return Err(ProgramError::InvalidInstructionData);
     }
+
+    let total_lp_supply = lp_mint_acc.supply();
+
+    let lp_token_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
+        integer_sqrt(amount_a * amount_b)
+    } else {
+        let a = (amount_a * total_lp_supply) / pool_state.reserve_a;
+        let b = (amount_b * total_lp_supply) / pool_state.reserve_b;
+        min(a, b)
+    };
 
     Ok(())
 }
