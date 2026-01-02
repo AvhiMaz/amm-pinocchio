@@ -86,6 +86,18 @@ pub fn process_add_liquidity(
     let user_token_b_acc = TokenAccount::from_account_info(user_token_b)?;
     let user_lp_token_acc = TokenAccount::from_account_info(user_lp_token)?;
 
+    if lp_mint.key() != &pool_state.lp_mint {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    if vault_a.key() != &pool_state.vault_a {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    if vault_b.key() != &pool_state.vault_b {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
     if user_token_a_acc.mint() != &pool_state.token_a {
         return Err(ProgramError::InvalidInstructionData);
     }
