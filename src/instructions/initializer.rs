@@ -98,13 +98,12 @@ pub fn process_initialize(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let fee_rate = u16::from_le_bytes([instruction[0], instruction[1]]);
-    let pool_bump = instruction[2];
-    let lp_mint_bump = instruction[3];
+    let data = bytemuck::try_from_bytes::<InitializeInstructionData>(instruction)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
 
     //  - 1 basis point = 0.01%
     //  - 10000 basis points = 100%
-    if fee_rate > 10000 {
+    if data.fee_rate > 10000 {
         return Err(ProgramError::InvalidArgument);
     }
 
@@ -113,7 +112,7 @@ pub fn process_initialize(
             POOL_SEED.as_bytes(),
             token_a.key().as_ref(),
             token_b.key().as_ref(),
-            &[pool_bump],
+            &[data.pool_bump],
         ],
         program_id,
     )?;
@@ -126,7 +125,7 @@ pub fn process_initialize(
         &[
             LP_MINT_SEED.as_bytes(),
             pool.key().as_ref(),
-            &[lp_mint_bump],
+            &[data.lp_mint_bump],
         ],
         program_id,
     )?;
@@ -137,7 +136,7 @@ pub fn process_initialize(
 
     let rent = Rent::get()?;
 
-    let binding = [pool_bump];
+    let binding = [data.pool_bump];
     let pool_seed = [
         Seed::from(POOL_SEED.as_bytes()),
         Seed::from(token_a.key().as_ref()),
@@ -168,13 +167,13 @@ pub fn process_initialize(
         vault_b: *vault_b.key(),
         reserve_a: 0,
         reserve_b: 0,
-        fee_rate,
-        bump: pool_bump,
-        lp_mint_bump,
+        fee_rate: data.fee_rate,
+        bump: data.pool_bump,
+        lp_mint_bump: data.lp_mint_bump,
         _padding: [0; 4],
     });
 
-    let binding = [lp_mint_bump];
+    let binding = [data.lp_mint_bump];
     let lp_mint_seed = [
         Seed::from(LP_MINT_SEED.as_bytes()),
         Seed::from(pool.key().as_ref()),

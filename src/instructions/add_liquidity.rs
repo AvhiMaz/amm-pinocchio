@@ -1,4 +1,4 @@
-use bytemuck::{Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, checked::try_from_bytes};
 use pinocchio::{
     ProgramResult,
     account_info::AccountInfo,
@@ -17,9 +17,9 @@ use crate::{constants::LP_MINT_SEED, helper::integer_sqrt, states::Pool};
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq, Pod, Zeroable)]
 pub struct AddLiquidityInstructionData {
-    pub amount_a: u64,      // amount of token a
-    pub amount_b: u64,      // amount of token b
-    pub min_lp_amount: u64, // slippage
+    pub amount_a: u64,
+    pub amount_b: u64,
+    pub min_lp_amount: u64,
 }
 
 impl AddLiquidityInstructionData {
@@ -55,25 +55,10 @@ pub fn process_add_liquidity(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let amount_a = u64::from_le_bytes(
-        instruction[0..8]
-            .try_into()
-            .map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
+    let data = try_from_bytes::<AddLiquidityInstructionData>(instruction)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
 
-    let amount_b = u64::from_le_bytes(
-        instruction[8..16]
-            .try_into()
-            .map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
-
-    let min_lp_amount = u64::from_le_bytes(
-        instruction[16..24]
-            .try_into()
-            .map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
-
-    if amount_a == 0 || amount_b == 0 {
+    if data.amount_a == 0 || data.amount_b == 0 {
         return Err(ProgramError::InvalidAccountData);
     };
 
@@ -117,18 +102,20 @@ pub fn process_add_liquidity(
 
     let lp_tokens_to_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
         integer_sqrt(
-            amount_a
-                .checked_mul(amount_b)
+            data.amount_a
+                .checked_mul(data.amount_b)
                 .ok_or(ProgramError::ArithmeticOverflow)?,
         )
     } else {
-        let a = amount_a
+        let a = data
+            .amount_a
             .checked_mul(total_lp_supply)
             .ok_or(ProgramError::ArithmeticOverflow)?
             .checked_div(pool_state.reserve_a)
             .ok_or(ProgramError::ArithmeticOverflow)?;
 
-        let b = amount_b
+        let b = data
+            .amount_b
             .checked_mul(total_lp_supply)
             .ok_or(ProgramError::ArithmeticOverflow)?
             .checked_div(pool_state.reserve_b)
@@ -137,7 +124,7 @@ pub fn process_add_liquidity(
         a.min(b)
     };
 
-    if lp_tokens_to_mint < min_lp_amount {
+    if lp_tokens_to_mint < data.min_lp_amount {
         return Err(ProgramError::InsufficientFunds);
     }
 
@@ -145,7 +132,7 @@ pub fn process_add_liquidity(
         from: user_token_a,
         to: vault_a,
         authority: user,
-        amount: amount_a,
+        amount: data.amount_a,
     }
     .invoke()?;
 
@@ -153,7 +140,7 @@ pub fn process_add_liquidity(
         from: user_token_b,
         to: vault_b,
         authority: user,
-        amount: amount_b,
+        amount: data.amount_b,
     }
     .invoke()?;
 
@@ -174,12 +161,12 @@ pub fn process_add_liquidity(
 
     pool_state.reserve_a = pool_state
         .reserve_a
-        .checked_add(amount_a)
+        .checked_add(data.amount_a)
         .ok_or(ProgramError::ArithmeticOverflow)?;
 
     pool_state.reserve_b = pool_state
         .reserve_b
-        .checked_add(amount_b)
+        .checked_add(data.amount_b)
         .ok_or(ProgramError::ArithmeticOverflow)?;
 
     Ok(())
