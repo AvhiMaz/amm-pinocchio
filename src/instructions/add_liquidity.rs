@@ -1,15 +1,18 @@
-use core::cmp::min;
-
 use bytemuck::{Pod, Zeroable};
 use pinocchio::{
-    ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
+    ProgramResult,
+    account_info::AccountInfo,
+    instruction::{Seed, Signer},
+    program_error::ProgramError,
+    pubkey::Pubkey,
 };
 use pinocchio_token::{
     ID,
+    instructions::{MintTo, Transfer},
     state::{Mint, TokenAccount},
 };
 
-use crate::{helper::integer_sqrt, states::Pool};
+use crate::{constants::LP_MINT_SEED, helper::integer_sqrt, states::Pool};
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq, Pod, Zeroable)]
@@ -114,13 +117,72 @@ pub fn process_add_liquidity(
 
     let total_lp_supply = lp_mint_acc.supply();
 
-    let lp_token_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
-        integer_sqrt(amount_a * amount_b)
+    let lp_tokens_to_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
+        integer_sqrt(
+            amount_a
+                .checked_mul(amount_b)
+                .ok_or(ProgramError::ArithmeticOverflow)?,
+        )
     } else {
-        let a = (amount_a * total_lp_supply) / pool_state.reserve_a;
-        let b = (amount_b * total_lp_supply) / pool_state.reserve_b;
-        min(a, b)
+        let a = amount_a
+            .checked_mul(total_lp_supply)
+            .ok_or(ProgramError::ArithmeticOverflow)?
+            .checked_div(pool_state.reserve_a)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+
+        let b = amount_b
+            .checked_mul(total_lp_supply)
+            .ok_or(ProgramError::ArithmeticOverflow)?
+            .checked_div(pool_state.reserve_b)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+
+        a.min(b)
     };
+
+    if lp_tokens_to_mint < min_lp_amount {
+        return Err(ProgramError::InsufficientFunds);
+    }
+
+    Transfer {
+        from: user_token_a,
+        to: vault_a,
+        authority: user,
+        amount: amount_a,
+    }
+    .invoke()?;
+
+    Transfer {
+        from: user_token_b,
+        to: vault_b,
+        authority: user,
+        amount: amount_b,
+    }
+    .invoke()?;
+
+    let binding = [pool_state.lp_mint_bump];
+    let lp_mint_seed = [
+        Seed::from(LP_MINT_SEED.as_bytes()),
+        Seed::from(pool.key().as_ref()),
+        Seed::from(&binding),
+    ];
+
+    MintTo {
+        mint: lp_mint,
+        mint_authority: pool,
+        account: user_lp_token,
+        amount: lp_tokens_to_mint,
+    }
+    .invoke_signed(&[Signer::from(&lp_mint_seed[..])])?;
+
+    pool_state.reserve_a = pool_state
+        .reserve_a
+        .checked_add(amount_a)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+
+    pool_state.reserve_b = pool_state
+        .reserve_b
+        .checked_add(amount_b)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
 
     Ok(())
 }
