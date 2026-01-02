@@ -85,8 +85,6 @@ pub fn process_add_liquidity(
     let pool_state = Pool::load_mut(&mut pool_data)?;
 
     let lp_mint_acc = Mint::from_account_info(lp_mint)?;
-    let vault_a_acc = TokenAccount::from_account_info(vault_a)?;
-    let vault_b_acc = TokenAccount::from_account_info(vault_b)?;
     let user_token_a_acc = TokenAccount::from_account_info(user_token_a)?;
     let user_token_b_acc = TokenAccount::from_account_info(user_token_b)?;
     let user_lp_token_acc = TokenAccount::from_account_info(user_lp_token)?;
