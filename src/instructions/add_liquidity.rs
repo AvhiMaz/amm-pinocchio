@@ -55,8 +55,7 @@ pub fn process_add_liquidity(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let data = bytemuck::checked::try_from_bytes::<AddLiquidityInstructionData>(instruction)
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    let data = bytemuck::checked::pod_read_unaligned::<AddLiquidityInstructionData>(instruction);
 
     if data.amount_a == 0 || data.amount_b == 0 {
         return Err(ProgramError::InvalidAccountData);
