@@ -1,3 +1,4 @@
+use amm_pinocchio::constants::POOL_SEED;
 use mollusk_svm::{Mollusk, program};
 use solana_sdk::{
     account::{Account, WritableAccount},
@@ -110,6 +111,63 @@ fn test_add_liquidity_success() {
             delegated_amount: 0,
         },
         user_token_b_acc.data_as_mut_slice(),
+    )
+    .unwrap();
+
+    let (pool_pda, pool_bump) = Pubkey::find_program_address(
+        &[POOL_SEED.as_bytes(), token_a.as_ref(), token_b.as_ref()],
+        &program_id,
+    );
+
+    let vault_a = Pubkey::new_from_array([0x05; 32]);
+
+    let mut vault_a_token = Account::new(
+        mollusk
+            .sysvars
+            .rent
+            .minimum_balance(spl_token::state::Account::LEN),
+        spl_token::state::Account::LEN,
+        &token_program,
+    );
+
+    Pack::pack(
+        spl_token::state::Account {
+            mint: token_a,
+            owner: pool_pda,
+            amount: 0,
+            delegate: COption::None,
+            state: spl_token::state::AccountState::Initialized,
+            is_native: COption::None,
+            close_authority: COption::None,
+            delegated_amount: 0,
+        },
+        vault_a_token.data_as_mut_slice(),
+    )
+    .unwrap();
+
+    let vault_b = Pubkey::new_from_array([0x09; 32]);
+
+    let mut vault_b_token = Account::new(
+        mollusk
+            .sysvars
+            .rent
+            .minimum_balance(spl_token::state::Account::LEN),
+        spl_token::state::Account::LEN,
+        &token_program,
+    );
+
+    Pack::pack(
+        spl_token::state::Account {
+            mint: token_b,
+            owner: pool_pda,
+            amount: 0,
+            delegate: COption::None,
+            state: spl_token::state::AccountState::Initialized,
+            is_native: COption::None,
+            close_authority: COption::None,
+            delegated_amount: 0,
+        },
+        vault_b_token.data_as_mut_slice(),
     )
     .unwrap();
 }
