@@ -5,7 +5,9 @@ use pinocchio::{
     program_entrypoint, program_error::ProgramError, pubkey::Pubkey,
 };
 
-use crate::instructions::{add_liquidity::process_add_liquidity, initializer::process_initialize};
+use crate::instructions::{
+    add_liquidity::process_add_liquidity, initializer::process_initialize, swap::process_swap,
+};
 
 program_entrypoint!(process_instruction);
 
@@ -21,6 +23,7 @@ fn process_instruction(
     match instruction_data.split_first() {
         Some((0, rest)) => process_initialize(program_id, accounts, rest),
         Some((1, rest)) => process_add_liquidity(program_id, accounts, rest),
+        Some((2, rest)) => process_swap(program_id, accounts, rest),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
