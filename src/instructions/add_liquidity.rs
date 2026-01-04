@@ -12,7 +12,7 @@ use pinocchio_token::{
     state::{Mint, TokenAccount},
 };
 
-use crate::{constants::LP_MINT_SEED, helper::integer_sqrt, states::Pool};
+use crate::{helper::integer_sqrt, states::Pool};
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq, Pod, Zeroable)]
@@ -65,67 +65,71 @@ pub fn process_add_liquidity(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    let mut pool_data = pool.try_borrow_mut_data()?;
-    let pool_state = Pool::load_mut(&mut pool_data)?;
+    let lp_tokens_to_mint = {
+        let mut pool_data = pool.try_borrow_mut_data()?;
+        let pool_state = Pool::load_mut(&mut pool_data)?;
 
-    let lp_mint_acc = Mint::from_account_info(lp_mint)?;
-    let user_token_a_acc = TokenAccount::from_account_info(user_token_a)?;
-    let user_token_b_acc = TokenAccount::from_account_info(user_token_b)?;
-    let user_lp_token_acc = TokenAccount::from_account_info(user_lp_token)?;
+        let lp_mint_acc = Mint::from_account_info(lp_mint)?;
+        let user_token_a_acc = TokenAccount::from_account_info(user_token_a)?;
+        let user_token_b_acc = TokenAccount::from_account_info(user_token_b)?;
+        let user_lp_token_acc = TokenAccount::from_account_info(user_lp_token)?;
 
-    if lp_mint.key() != &pool_state.lp_mint {
-        return Err(ProgramError::InvalidAccountData);
-    }
+        if lp_mint.key() != &pool_state.lp_mint {
+            return Err(ProgramError::InvalidAccountData);
+        }
 
-    if vault_a.key() != &pool_state.vault_a {
-        return Err(ProgramError::InvalidAccountData);
-    }
+        if vault_a.key() != &pool_state.vault_a {
+            return Err(ProgramError::InvalidAccountData);
+        }
 
-    if vault_b.key() != &pool_state.vault_b {
-        return Err(ProgramError::InvalidAccountData);
-    }
+        if vault_b.key() != &pool_state.vault_b {
+            return Err(ProgramError::InvalidAccountData);
+        }
 
-    if user_token_a_acc.mint() != &pool_state.token_a {
-        return Err(ProgramError::InvalidInstructionData);
-    }
+        if user_token_a_acc.mint() != &pool_state.token_a {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
-    if user_token_b_acc.mint() != &pool_state.token_b {
-        return Err(ProgramError::InvalidInstructionData);
-    }
+        if user_token_b_acc.mint() != &pool_state.token_b {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
-    if user_lp_token_acc.mint() != &pool_state.lp_mint {
-        return Err(ProgramError::InvalidInstructionData);
-    }
+        if user_lp_token_acc.mint() != &pool_state.lp_mint {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
-    let total_lp_supply = lp_mint_acc.supply();
+        let total_lp_supply = lp_mint_acc.supply();
 
-    let lp_tokens_to_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
-        integer_sqrt(
-            data.amount_a
-                .checked_mul(data.amount_b)
-                .ok_or(ProgramError::ArithmeticOverflow)?,
-        )
-    } else {
-        let a = data
-            .amount_a
-            .checked_mul(total_lp_supply)
-            .ok_or(ProgramError::ArithmeticOverflow)?
-            .checked_div(pool_state.reserve_a)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let lp_tokens_to_mint = if pool_state.reserve_a == 0 && pool_state.reserve_b == 0 {
+            integer_sqrt(
+                data.amount_a
+                    .checked_mul(data.amount_b)
+                    .ok_or(ProgramError::ArithmeticOverflow)?,
+            )
+        } else {
+            let a = data
+                .amount_a
+                .checked_mul(total_lp_supply)
+                .ok_or(ProgramError::ArithmeticOverflow)?
+                .checked_div(pool_state.reserve_a)
+                .ok_or(ProgramError::ArithmeticOverflow)?;
 
-        let b = data
-            .amount_b
-            .checked_mul(total_lp_supply)
-            .ok_or(ProgramError::ArithmeticOverflow)?
-            .checked_div(pool_state.reserve_b)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            let b = data
+                .amount_b
+                .checked_mul(total_lp_supply)
+                .ok_or(ProgramError::ArithmeticOverflow)?
+                .checked_div(pool_state.reserve_b)
+                .ok_or(ProgramError::ArithmeticOverflow)?;
 
-        a.min(b)
+            a.min(b)
+        };
+
+        if lp_tokens_to_mint < data.min_lp_amount {
+            return Err(ProgramError::InsufficientFunds);
+        }
+
+        lp_tokens_to_mint
     };
-
-    if lp_tokens_to_mint < data.min_lp_amount {
-        return Err(ProgramError::InsufficientFunds);
-    }
 
     Transfer {
         from: user_token_a,
@@ -143,10 +147,17 @@ pub fn process_add_liquidity(
     }
     .invoke()?;
 
-    let binding = [pool_state.lp_mint_bump];
-    let lp_mint_seed = [
-        Seed::from(LP_MINT_SEED.as_bytes()),
-        Seed::from(pool.key().as_ref()),
+    let (pool_bump, token_a, token_b) = {
+        let pool_data = pool.try_borrow_data()?;
+        let pool_state = Pool::load(&pool_data)?;
+        (pool_state.bump, pool_state.token_a, pool_state.token_b)
+    };
+
+    let binding = [pool_bump];
+    let pool_seed = [
+        Seed::from(crate::constants::POOL_SEED.as_bytes()),
+        Seed::from(token_a.as_ref()),
+        Seed::from(token_b.as_ref()),
         Seed::from(&binding),
     ];
 
@@ -156,7 +167,10 @@ pub fn process_add_liquidity(
         account: user_lp_token,
         amount: lp_tokens_to_mint,
     }
-    .invoke_signed(&[Signer::from(&lp_mint_seed[..])])?;
+    .invoke_signed(&[Signer::from(&pool_seed[..])])?;
+
+    let mut pool_data = pool.try_borrow_mut_data()?;
+    let pool_state = Pool::load_mut(&mut pool_data)?;
 
     pool_state.reserve_a = pool_state
         .reserve_a
