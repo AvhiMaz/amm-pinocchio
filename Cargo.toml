@@ -18,6 +18,10 @@ name = "add_liquidity_ix_bench"
 path = "bench/add_liquidity_ix_bench.rs"
 harness = false
 
+[[bench]]
+name = "swap_ix_bench"
+path = "bench/swap_ix_bench.rs"
+harness = false
 
 [dependencies]
 bytemuck = { version = "1.14", features = ["derive"] }

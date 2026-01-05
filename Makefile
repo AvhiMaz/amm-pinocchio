@@ -16,6 +16,6 @@ test:
 	cargo test -- --nocapture
 
 bench:
-	cargo build-sbf && cargo bench --bench initializer_ix_bench && cargo bench --bench initializer_ix_bench
+	cargo build-sbf && cargo bench --bench initializer_ix_bench && cargo bench --bench add_liquidity_ix_bench && cargo bench --bench swap_ix_bench
 
 all: fmt check clippy build test bench
