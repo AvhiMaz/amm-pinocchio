@@ -1,152 +1,38 @@
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionInstruction,
-  sendAndConfirmTransaction,
-} from "@solana/web3.js";
-import {
-  TOKEN_PROGRAM_ID,
-  ACCOUNT_SIZE,
-  createMint,
-  createAccount,
-  mintTo,
-  getAccount,
-  getMint,
-  createInitializeAccountInstruction,
-} from "@solana/spl-token";
-import fs from "fs";
-
-const PROGRAM_ID = new PublicKey(
-  "2VBqpVrdpbxsR5ekcD1G1GF8Ut6G4tA8RaZMEmZG9RSD",
-);
-const POOL_SEED = "pool";
-const LP_MINT_SEED = "lp_mint";
+import { sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
+import { PROGRAM_ID, RPC_URL } from "./helper/constants";
+import { createAddLiquidityInstruction } from "./instructions/addLiquidity";
+import { createInitializeInstruction } from "./instructions/initializer";
+import { setupPoolAccounts } from "./helper/setup";
+import { getConnection, loadKeypair } from "./helper/utils";
+import { createSwapInstruction } from "./instructions/swap";
+import { createWithdrawInstruction } from "./instructions/withdraw";
+import { getAccount, getMint, createAccount } from "@solana/spl-token";
 
 async function main() {
-  const connection = new Connection(
-    "https://api.devnet.solana.com",
-    "confirmed",
-  );
-
-  const secretKey = JSON.parse(
-    fs.readFileSync("/Users/avhidotsol/.config/solana/id.json", "utf-8"),
-  );
-  const payer = Keypair.fromSecretKey(new Uint8Array(secretKey));
+  const connection = getConnection(RPC_URL);
+  const payer = loadKeypair("/Users/avhidotsol/.config/solana/id.json");
 
   console.log("Payer:", payer.publicKey.toString());
   console.log("Program ID:", PROGRAM_ID.toString());
 
-  const mintA = await createMint(connection, payer, payer.publicKey, null, 6);
-  console.log("Mint A:", mintA.toString());
+  const setup = await setupPoolAccounts(connection, payer, PROGRAM_ID);
 
-  const mintB = await createMint(connection, payer, payer.publicKey, null, 6);
-  console.log("Mint B:", mintB.toString());
+  console.log("Mint A:", setup.mintA.toString());
+  console.log("Mint B:", setup.mintB.toString());
+  console.log("Pool PDA:", setup.poolPda.toString());
+  console.log("LP Mint:", setup.lpMint.toString());
+  console.log("Vault A:", setup.vaultA.toString());
+  console.log("Vault B:", setup.vaultB.toString());
+  console.log("User Token A:", setup.userTokenA.toString());
+  console.log("User Token B:", setup.userTokenB.toString());
 
-  const [poolPda, poolBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(POOL_SEED), mintA.toBuffer(), mintB.toBuffer()],
-    PROGRAM_ID,
-  );
-  console.log("\nPool PDA:", poolPda.toString(), "Bump:", poolBump);
-
-  const [lpMint, lpMintBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(LP_MINT_SEED), poolPda.toBuffer()],
-    PROGRAM_ID,
-  );
-  console.log("LP Mint PDA:", lpMint.toString(), "Bump:", lpMintBump);
-
-  const vaultAKeypair = Keypair.generate();
-  const vaultBKeypair = Keypair.generate();
-
-  const vaultA = vaultAKeypair.publicKey;
-  const vaultB = vaultBKeypair.publicKey;
-
-  const lamports =
-    await connection.getMinimumBalanceForRentExemption(ACCOUNT_SIZE);
-
-  const createVaultATx = new Transaction().add(
-    SystemProgram.createAccount({
-      fromPubkey: payer.publicKey,
-      newAccountPubkey: vaultA,
-      space: ACCOUNT_SIZE,
-      lamports,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeAccountInstruction(
-      vaultA,
-      mintA,
-      poolPda,
-      TOKEN_PROGRAM_ID,
-    ),
-  );
-  await sendAndConfirmTransaction(connection, createVaultATx, [
-    payer,
-    vaultAKeypair,
-  ]);
-  console.log("Vault A created and initialized:", vaultA.toString());
-
-  const createVaultBTx = new Transaction().add(
-    SystemProgram.createAccount({
-      fromPubkey: payer.publicKey,
-      newAccountPubkey: vaultB,
-      space: ACCOUNT_SIZE,
-      lamports,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeAccountInstruction(
-      vaultB,
-      mintB,
-      poolPda,
-      TOKEN_PROGRAM_ID,
-    ),
-  );
-  await sendAndConfirmTransaction(connection, createVaultBTx, [
-    payer,
-    vaultBKeypair,
-  ]);
-  console.log("Vault B created and initialized:", vaultB.toString());
-
-  const userTokenA = await createAccount(
-    connection,
-    payer,
-    mintA,
-    payer.publicKey,
-  );
-  await mintTo(connection, payer, mintA, userTokenA, payer, 1_000_000);
-  console.log("User Token A:", userTokenA.toString(), "(1,000,000 tokens)");
-
-  const userTokenB = await createAccount(
-    connection,
-    payer,
-    mintB,
-    payer.publicKey,
-  );
-  await mintTo(connection, payer, mintB, userTokenB, payer, 1_000_000);
-  console.log("User Token B:", userTokenB.toString(), "(1,000,000 tokens)");
-
-  const feeRate = 30;
-  const initData = Buffer.alloc(5);
-  initData.writeUInt8(0, 0);
-  initData.writeUInt16LE(feeRate, 1);
-  initData.writeUInt8(poolBump, 3);
-  initData.writeUInt8(lpMintBump, 4);
-
-  const initIx = new TransactionInstruction({
+  const initIx = createInitializeInstruction({
     programId: PROGRAM_ID,
-    keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: poolPda, isSigner: false, isWritable: true },
-      { pubkey: mintA, isSigner: false, isWritable: false },
-      { pubkey: mintB, isSigner: false, isWritable: false },
-      { pubkey: lpMint, isSigner: false, isWritable: true },
-      { pubkey: vaultA, isSigner: false, isWritable: true },
-      { pubkey: vaultB, isSigner: false, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    data: initData,
+    payer: payer.publicKey,
+    ...setup,
+    feeRate: 30,
+    poolBump: setup.poolBump,
+    lpMintBump: setup.lpMintBump,
   });
 
   const initTx = new Transaction().add(initIx);
@@ -156,62 +42,19 @@ async function main() {
   const userLpToken = await createAccount(
     connection,
     payer,
-    lpMint,
+    setup.lpMint,
     payer.publicKey,
   );
   console.log("User LP Token:", userLpToken.toString());
 
-  const amountA = BigInt(100_000);
-  const amountB = BigInt(100_000);
-  const minLpAmount = BigInt(0);
-
-  const accountsDebug = [
-    { name: "payer", pubkey: payer.publicKey },
-    { name: "poolPda", pubkey: poolPda },
-    { name: "lpMint", pubkey: lpMint },
-    { name: "vaultA", pubkey: vaultA },
-    { name: "vaultB", pubkey: vaultB },
-    { name: "userTokenA", pubkey: userTokenA },
-    { name: "userTokenB", pubkey: userTokenB },
-    { name: "userLpToken", pubkey: userLpToken },
-    { name: "TOKEN_PROGRAM_ID", pubkey: TOKEN_PROGRAM_ID },
-  ];
-
-  console.log("Accounts:");
-  for (const acc of accountsDebug) {
-    console.log(`  ${acc.name}: ${acc.pubkey.toString()}`);
-  }
-
-  for (let i = 0; i < accountsDebug.length; i++) {
-    for (let j = i + 1; j < accountsDebug.length; j++) {
-      if (accountsDebug[i].pubkey.equals(accountsDebug[j].pubkey)) {
-        console.error(
-          `DUPLICATE: ${accountsDebug[i].name} and ${accountsDebug[j].name} have the same pubkey!`,
-        );
-      }
-    }
-  }
-
-  const addLiqData = Buffer.alloc(25);
-  addLiqData.writeUInt8(1, 0); // discriminator
-  addLiqData.writeBigUInt64LE(amountA, 1);
-  addLiqData.writeBigUInt64LE(amountB, 9);
-  addLiqData.writeBigUInt64LE(minLpAmount, 17);
-
-  const addLiqIx = new TransactionInstruction({
+  const addLiqIx = createAddLiquidityInstruction({
     programId: PROGRAM_ID,
-    keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: poolPda, isSigner: false, isWritable: true },
-      { pubkey: lpMint, isSigner: false, isWritable: true },
-      { pubkey: vaultA, isSigner: false, isWritable: true },
-      { pubkey: vaultB, isSigner: false, isWritable: true },
-      { pubkey: userTokenA, isSigner: false, isWritable: true },
-      { pubkey: userTokenB, isSigner: false, isWritable: true },
-      { pubkey: userLpToken, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    data: addLiqData,
+    payer: payer.publicKey,
+    ...setup,
+    userLpToken,
+    amountA: BigInt(100_000),
+    amountB: BigInt(100_000),
+    minLpAmount: BigInt(0),
   });
 
   const addLiqTx = new Transaction().add(addLiqIx);
@@ -220,114 +63,68 @@ async function main() {
   ]);
   console.log("Add Liquidity signature:", addLiqSig);
 
-  const userTokenAInfo = await getAccount(connection, userTokenA);
-  const userTokenBInfo = await getAccount(connection, userTokenB);
+  const userTokenAInfo = await getAccount(connection, setup.userTokenA);
+  const userTokenBInfo = await getAccount(connection, setup.userTokenB);
   const userLpTokenInfo = await getAccount(connection, userLpToken);
-  const vaultAInfo = await getAccount(connection, vaultA);
-  const vaultBInfo = await getAccount(connection, vaultB);
-  const lpMintInfo = await getMint(connection, lpMint);
+  const vaultAInfo = await getAccount(connection, setup.vaultA);
+  const vaultBInfo = await getAccount(connection, setup.vaultB);
+  const lpMintInfo = await getMint(connection, setup.lpMint);
 
-  console.log(
-    "User Token A balance:",
-    userTokenAInfo.amount.toString(),
-    "(should be 900,000)",
-  );
-  console.log(
-    "User Token B balance:",
-    userTokenBInfo.amount.toString(),
-    "(should be 900,000)",
-  );
+  console.log("\nAfter Add Liquidity:");
+  console.log("User Token A balance:", userTokenAInfo.amount.toString());
+  console.log("User Token B balance:", userTokenBInfo.amount.toString());
   console.log("User LP Token balance:", userLpTokenInfo.amount.toString());
-  console.log(
-    "Vault A balance:",
-    vaultAInfo.amount.toString(),
-    "(should be 100,000)",
-  );
-  console.log(
-    "Vault B balance:",
-    vaultBInfo.amount.toString(),
-    "(should be 100,000)",
-  );
+  console.log("Vault A balance:", vaultAInfo.amount.toString());
+  console.log("Vault B balance:", vaultBInfo.amount.toString());
   console.log("LP Mint supply:", lpMintInfo.supply.toString());
 
-  const amountIn = BigInt(10_000);
-  const minAmountOut = BigInt(9_000);
-
-  const swapData = Buffer.alloc(17);
-  swapData.writeUInt8(2, 0);
-  swapData.writeBigUInt64LE(amountIn, 1);
-  swapData.writeBigUInt64LE(minAmountOut, 9);
-
-  const swapIx = new TransactionInstruction({
+  const swapIx = createSwapInstruction({
     programId: PROGRAM_ID,
-    keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: poolPda, isSigner: false, isWritable: true },
-      { pubkey: mintA, isSigner: false, isWritable: false },
-      { pubkey: mintB, isSigner: false, isWritable: false },
-      { pubkey: vaultA, isSigner: false, isWritable: true },
-      { pubkey: vaultB, isSigner: false, isWritable: true },
-      { pubkey: userTokenA, isSigner: false, isWritable: true },
-      { pubkey: userTokenB, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    data: swapData,
+    payer: payer.publicKey,
+    ...setup,
+    amountIn: BigInt(10_000),
+    minAmountOut: BigInt(9_000),
   });
 
   const swapTx = new Transaction().add(swapIx);
   const swapSig = await sendAndConfirmTransaction(connection, swapTx, [payer]);
-  console.log("\nSwap signature:", swapSig);
+  console.log("Swap signature:", swapSig);
 
-  const userTokenAAfter = await getAccount(connection, userTokenA);
-  const userTokenBAfter = await getAccount(connection, userTokenB);
-  const vaultAAfter = await getAccount(connection, vaultA);
-  const vaultBAfter = await getAccount(connection, vaultB);
+  const userTokenAAfterSwap = await getAccount(connection, setup.userTokenA);
+  const userTokenBAfterSwap = await getAccount(connection, setup.userTokenB);
+  const vaultAAfterSwap = await getAccount(connection, setup.vaultA);
+  const vaultBAfterSwap = await getAccount(connection, setup.vaultB);
 
-  console.log("\nSwap Results:");
-  console.log("User Token A balance:", userTokenAAfter.amount.toString());
-  console.log("User Token B balance:", userTokenBAfter.amount.toString());
-  console.log("Vault A balance:", vaultAAfter.amount.toString());
-  console.log("Vault B balance:", vaultBAfter.amount.toString());
+  console.log("\nAfter Swap:");
+  console.log("User Token A balance:", userTokenAAfterSwap.amount.toString());
+  console.log("User Token B balance:", userTokenBAfterSwap.amount.toString());
+  console.log("Vault A balance:", vaultAAfterSwap.amount.toString());
+  console.log("Vault B balance:", vaultBAfterSwap.amount.toString());
 
-  const min_amount_a = BigInt(9_000);
-  const min_amount_b = BigInt(9_000);
-
-  const withdrawData = Buffer.alloc(25);
-  withdrawData.writeUInt8(3, 0);
-  withdrawData.writeBigUInt64LE(amountIn, 1);
-  withdrawData.writeBigUInt64LE(min_amount_a, 9);
-  withdrawData.writeBigUInt64LE(min_amount_b, 17);
-
-  const withdrawIx = new TransactionInstruction({
+  const withdrawIx = createWithdrawInstruction({
     programId: PROGRAM_ID,
-    keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: poolPda, isSigner: false, isWritable: true },
-      { pubkey: lpMint, isSigner: false, isWritable: true },
-      { pubkey: vaultA, isSigner: false, isWritable: true },
-      { pubkey: vaultB, isSigner: false, isWritable: true },
-      { pubkey: userLpToken, isSigner: false, isWritable: true },
-      { pubkey: userTokenA, isSigner: false, isWritable: true },
-      { pubkey: userTokenB, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    data: withdrawData,
+    payer: payer.publicKey,
+    ...setup,
+    userLpToken,
+    amountIn: BigInt(10_000),
+    minAmountA: BigInt(9_000),
+    minAmountB: BigInt(9_000),
   });
 
   const withdrawTx = new Transaction().add(withdrawIx);
   const withdrawSig = await sendAndConfirmTransaction(connection, withdrawTx, [
     payer,
   ]);
-  console.log("\nWithdraw signature:", withdrawSig);
+  console.log("Withdraw signature:", withdrawSig);
 
-  const userTokenAFinal = await getAccount(connection, userTokenA);
-  const userTokenBFinal = await getAccount(connection, userTokenB);
+  const userTokenAFinal = await getAccount(connection, setup.userTokenA);
+  const userTokenBFinal = await getAccount(connection, setup.userTokenB);
   const userLpTokenFinal = await getAccount(connection, userLpToken);
-  const vaultAFinal = await getAccount(connection, vaultA);
-  const vaultBFinal = await getAccount(connection, vaultB);
-  const lpMintFinal = await getMint(connection, lpMint);
+  const vaultAFinal = await getAccount(connection, setup.vaultA);
+  const vaultBFinal = await getAccount(connection, setup.vaultB);
+  const lpMintFinal = await getMint(connection, setup.lpMint);
 
-  console.log("\nWithdraw Results:");
+  console.log("\nAfter Withdraw:");
   console.log("User Token A balance:", userTokenAFinal.amount.toString());
   console.log("User Token B balance:", userTokenBFinal.amount.toString());
   console.log("User LP Token balance:", userLpTokenFinal.amount.toString());
@@ -335,7 +132,7 @@ async function main() {
   console.log("Vault B balance:", vaultBFinal.amount.toString());
   console.log("LP Mint supply:", lpMintFinal.supply.toString());
 
-  console.log("\nFUCKKKKKKKKK YESSSSSSSSSS!!!! all completed successfully!");
+  console.log("\nfuckkkkk yesssssss!");
 }
 
 main().catch(console.error);
