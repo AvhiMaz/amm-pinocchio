@@ -1,14 +1,16 @@
 use bytemuck::{Pod, Zeroable};
 use pinocchio::{
-    ProgramResult,
-    account_info::AccountInfo,
-    instruction::{Seed, Signer},
-    program_error::ProgramError,
-    pubkey::Pubkey,
+    ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
 };
-use pinocchio_token::{ID, instructions::Transfer, state::TokenAccount};
+use pinocchio_token::{instructions::Transfer, state::TokenAccount};
 
-use crate::{constants::POOL_SEED, states::Pool};
+use super::{
+    utils::{create_pool_seed, create_pool_signer},
+    validators::{
+        validate_instruction_length, validate_non_zero, validate_signer, validate_token_program,
+    },
+};
+use crate::states::Pool;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -42,22 +44,13 @@ pub fn process_swap(
         return Err(ProgramError::InvalidAccountData);
     };
 
-    if !user.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-
-    if instructions.len() != self::SwapInstructionData::LEN {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    validate_signer(user)?;
+    validate_token_program(token_program)?;
+    validate_instruction_length(instructions, SwapInstructionData::LEN)?;
 
     let data: SwapInstructionData = bytemuck::checked::pod_read_unaligned(instructions);
 
-    if data.amount_in == 0 {
-        return Err(ProgramError::InvalidAccountData);
-    }
-    if token_program.key() != &ID {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    validate_non_zero(data.amount_in)?;
 
     let (amount_out, is_a_to_b, token_a, token_b, pool_bump) = {
         let pool_state = pool.try_borrow_data()?;
@@ -139,19 +132,14 @@ pub fn process_swap(
     .invoke()?;
 
     let binding = [pool_bump];
-    let pool_seed = [
-        Seed::from(POOL_SEED.as_bytes()),
-        Seed::from(token_a.as_ref()),
-        Seed::from(token_b.as_ref()),
-        Seed::from(&binding),
-    ];
+    let pool_seed = create_pool_seed(&binding, &token_a, &token_b);
     Transfer {
         from: output_vault,
         to: user_output_account,
         amount: amount_out,
         authority: pool,
     }
-    .invoke_signed(&[Signer::from(&pool_seed[..])])?;
+    .invoke_signed(&[create_pool_signer(&pool_seed)])?;
 
     let mut pool_data = pool.try_borrow_mut_data()?;
     let pool_state = Pool::load_mut(&mut pool_data)?;

@@ -1,17 +1,19 @@
 use bytemuck::{Pod, Zeroable};
 use pinocchio::{
-    ProgramResult,
-    account_info::AccountInfo,
-    instruction::{Seed, Signer},
-    program_error::ProgramError,
-    pubkey::Pubkey,
+    ProgramResult, account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
 };
 use pinocchio_token::{
-    ID,
     instructions::{Burn, Transfer},
     state::{Mint, TokenAccount},
 };
 
+use super::{
+    utils::{create_pool_seed, create_pool_signer, load_pool_data},
+    validators::{
+        validate_instruction_length, validate_non_zero, validate_pubkey_match, validate_signer,
+        validate_token_program,
+    },
+};
 use crate::states::Pool;
 
 #[repr(C)]
@@ -47,23 +49,13 @@ pub fn process_withdraw(
         return Err(ProgramError::InvalidAccountData);
     };
 
-    if !user.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-
-    if token_program.key() != &ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-
-    if instructions.len() != self::WithdrawInstructionData::LEN {
-        return Err(ProgramError::InvalidInstructionData);
-    }
+    validate_signer(user)?;
+    validate_token_program(token_program)?;
+    validate_instruction_length(instructions, WithdrawInstructionData::LEN)?;
 
     let data: WithdrawInstructionData = bytemuck::checked::pod_read_unaligned(instructions);
 
-    if data.amount_in == 0 {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    validate_non_zero(data.amount_in)?;
 
     let (amount_a_out, amount_b_out) = {
         let pool = pool.try_borrow_data()?;
@@ -75,37 +67,15 @@ pub fn process_withdraw(
         let user_token_a_acc = TokenAccount::from_account_info(user_token_a)?;
         let user_token_b_acc = TokenAccount::from_account_info(user_token_b)?;
 
-        if user_lp_acc.mint() != &pool_state.lp_mint {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        if user_token_a_acc.mint() != &pool_state.token_a {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        if user_token_b_acc.mint() != &pool_state.token_b {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        if user_lp_acc.owner() != user.key() {
-            return Err(ProgramError::InvalidAccountData);
-        }
-        if user_token_a_acc.owner() != user.key() {
-            return Err(ProgramError::InvalidAccountData);
-        }
-        if user_token_b_acc.owner() != user.key() {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        if lp_mint.key() != &pool_state.lp_mint {
-            return Err(ProgramError::InvalidAccountData);
-        }
-        if vault_a.key() != &pool_state.vault_a {
-            return Err(ProgramError::InvalidAccountData);
-        }
-        if vault_b.key() != &pool_state.vault_b {
-            return Err(ProgramError::InvalidAccountData);
-        }
+        validate_pubkey_match(user_lp_acc.mint(), &pool_state.lp_mint)?;
+        validate_pubkey_match(user_token_a_acc.mint(), &pool_state.token_a)?;
+        validate_pubkey_match(user_token_b_acc.mint(), &pool_state.token_b)?;
+        validate_pubkey_match(user_lp_acc.owner(), user.key())?;
+        validate_pubkey_match(user_token_a_acc.owner(), user.key())?;
+        validate_pubkey_match(user_token_b_acc.owner(), user.key())?;
+        validate_pubkey_match(lp_mint.key(), &pool_state.lp_mint)?;
+        validate_pubkey_match(vault_a.key(), &pool_state.vault_a)?;
+        validate_pubkey_match(vault_b.key(), &pool_state.vault_b)?;
 
         let total_supply = lp_mint_acc.supply();
         if total_supply == 0 {
@@ -158,19 +128,9 @@ pub fn process_withdraw(
     }
     .invoke()?;
 
-    let (pool_bump, token_a, token_b) = {
-        let pool_data = pool.try_borrow_data()?;
-        let pool_state = Pool::load(&pool_data)?;
-        (pool_state.bump, pool_state.token_a, pool_state.token_b)
-    };
-
+    let (pool_bump, token_a, token_b) = load_pool_data(pool)?;
     let binding = [pool_bump];
-    let pool_seed = [
-        Seed::from(crate::constants::POOL_SEED.as_bytes()),
-        Seed::from(token_a.as_ref()),
-        Seed::from(token_b.as_ref()),
-        Seed::from(&binding),
-    ];
+    let pool_seed = create_pool_seed(&binding, &token_a, &token_b);
 
     Transfer {
         from: vault_a,
@@ -178,7 +138,7 @@ pub fn process_withdraw(
         authority: pool,
         amount: amount_a_out,
     }
-    .invoke_signed(&[Signer::from(&pool_seed[..])])?;
+    .invoke_signed(&[create_pool_signer(&pool_seed)])?;
 
     Transfer {
         from: vault_b,
@@ -186,7 +146,7 @@ pub fn process_withdraw(
         authority: pool,
         amount: amount_b_out,
     }
-    .invoke_signed(&[Signer::from(&pool_seed[..])])?;
+    .invoke_signed(&[create_pool_signer(&pool_seed)])?;
 
     let mut pool_data = pool.try_borrow_mut_data()?;
     let pool_state = Pool::load_mut(&mut pool_data)?;
