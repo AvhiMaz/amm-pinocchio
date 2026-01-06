@@ -20,7 +20,7 @@ import {
 import fs from "fs";
 
 const PROGRAM_ID = new PublicKey(
-  "ABNkPBUxPGKj2JWJSb8Nnmqw1RTjDmPYBHA8oQvkNGTJ",
+  "2VBqpVrdpbxsR5ekcD1G1GF8Ut6G4tA8RaZMEmZG9RSD",
 );
 const POOL_SEED = "pool";
 const LP_MINT_SEED = "lp_mint";
@@ -289,7 +289,53 @@ async function main() {
   console.log("Vault A balance:", vaultAAfter.amount.toString());
   console.log("Vault B balance:", vaultBAfter.amount.toString());
 
-  console.log("\nFUCCKKKKKKKKK YESSSSSSSSSS!!!!!!!");
+  const min_amount_a = BigInt(9_000);
+  const min_amount_b = BigInt(9_000);
+
+  const withdrawData = Buffer.alloc(25);
+  withdrawData.writeUInt8(3, 0);
+  withdrawData.writeBigUInt64LE(amountIn, 1);
+  withdrawData.writeBigUInt64LE(min_amount_a, 9);
+  withdrawData.writeBigUInt64LE(min_amount_b, 17);
+
+  const withdrawIx = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: poolPda, isSigner: false, isWritable: true },
+      { pubkey: lpMint, isSigner: false, isWritable: true },
+      { pubkey: vaultA, isSigner: false, isWritable: true },
+      { pubkey: vaultB, isSigner: false, isWritable: true },
+      { pubkey: userLpToken, isSigner: false, isWritable: true },
+      { pubkey: userTokenA, isSigner: false, isWritable: true },
+      { pubkey: userTokenB, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: withdrawData,
+  });
+
+  const withdrawTx = new Transaction().add(withdrawIx);
+  const withdrawSig = await sendAndConfirmTransaction(connection, withdrawTx, [
+    payer,
+  ]);
+  console.log("\nWithdraw signature:", withdrawSig);
+
+  const userTokenAFinal = await getAccount(connection, userTokenA);
+  const userTokenBFinal = await getAccount(connection, userTokenB);
+  const userLpTokenFinal = await getAccount(connection, userLpToken);
+  const vaultAFinal = await getAccount(connection, vaultA);
+  const vaultBFinal = await getAccount(connection, vaultB);
+  const lpMintFinal = await getMint(connection, lpMint);
+
+  console.log("\nWithdraw Results:");
+  console.log("User Token A balance:", userTokenAFinal.amount.toString());
+  console.log("User Token B balance:", userTokenBFinal.amount.toString());
+  console.log("User LP Token balance:", userLpTokenFinal.amount.toString());
+  console.log("Vault A balance:", vaultAFinal.amount.toString());
+  console.log("Vault B balance:", vaultBFinal.amount.toString());
+  console.log("LP Mint supply:", lpMintFinal.supply.toString());
+
+  console.log("\nFUCKKKKKKKKK YESSSSSSSSSS!!!! all completed successfully!");
 }
 
 main().catch(console.error);

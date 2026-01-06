@@ -1,7 +1,7 @@
 .PHONY: build check clippy fmt test bench all
 
 build:
-	cargo build
+	cargo build-sbf
 
 check:
 	cargo check
@@ -13,9 +13,9 @@ fmt:
 	cargo fmt; cargo +nightly fmt --all
 
 test:
-	cargo test -- --nocapture
+	cargo test 
 
 bench:
-	cargo build-sbf && cargo bench --bench initializer_ix_bench && cargo bench --bench add_liquidity_ix_bench && cargo bench --bench swap_ix_bench
+	cargo bench --bench initializer_ix_bench && cargo bench --bench add_liquidity_ix_bench && cargo bench --bench swap_ix_bench && cargo bench --bench withdraw_ix_bench
 
 all: fmt check clippy build test bench

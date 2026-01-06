@@ -7,6 +7,7 @@ use pinocchio::{
 
 use crate::instructions::{
     add_liquidity::process_add_liquidity, initializer::process_initialize, swap::process_swap,
+    withdraw::process_withdraw,
 };
 
 program_entrypoint!(process_instruction);
@@ -24,6 +25,7 @@ fn process_instruction(
         Some((0, rest)) => process_initialize(program_id, accounts, rest),
         Some((1, rest)) => process_add_liquidity(program_id, accounts, rest),
         Some((2, rest)) => process_swap(program_id, accounts, rest),
+        Some((3, rest)) => process_withdraw(program_id, accounts, rest),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

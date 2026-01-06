@@ -23,6 +23,12 @@ name = "swap_ix_bench"
 path = "bench/swap_ix_bench.rs"
 harness = false
 
+[[bench]]
+name = "withdraw_ix_bench"
+path = "bench/withdraw_ix_bench.rs"
+harness = false
+
+
 [dependencies]
 bytemuck = { version = "1.14", features = ["derive"] }
 pinocchio = "0.9.2"
